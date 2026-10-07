@@ -1,0 +1,9 @@
+# Vivado specific ignores
+*.jou
+*.log
+*.pb
+*.wdb
+*.str
+.Xil/
+vivado_project/
+*~
