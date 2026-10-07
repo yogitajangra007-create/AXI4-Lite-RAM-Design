@@ -53,11 +53,13 @@ module axi4lite_slave (
     localparam W_RESP  = 2'b10;
 
     // States for Read FSM
-    localparam R_IDLE  = 1'b0;
-    localparam R_DATA  = 1'b1;
+    localparam R_IDLE  = 2'b00;
+    localparam R_ADDR  = 2'b01;
+    localparam R_FETCH = 2'b10;
+    localparam R_DATA  = 2'b11;
 
     reg [1:0] w_state, w_next;
-    reg r_state, r_next;
+    reg [1:0] r_state, r_next;
 
     reg awready_next, wready_next, bvalid_next;
     reg arready_next, rvalid_next;
@@ -82,11 +84,11 @@ module axi4lite_slave (
             mem_we  <= mem_we_next;
             
             // Latch write address when valid
-            if (awvalid && awready_next) begin
+            if (awvalid && awready) begin
                 mem_addr <= awaddr;
             end
             // Latch write data when valid
-            if (wvalid && wready_next) begin
+            if (wvalid && wready) begin
                 mem_din   <= wdata;
                 mem_wstrb <= wstrb;
             end
@@ -152,18 +154,13 @@ module axi4lite_slave (
             rresp   <= rresp_next;
             
             // Latch read address
-            if (arvalid && arready_next) begin
+            if (arvalid && arready) begin
                 mem_addr <= araddr;
             end
             
-            // Latch read data (after RAM delay)
-            if (r_state == R_IDLE && r_next == R_DATA) begin
-                // The RAM takes 1 cycle, so data will be ready when rvalid is asserted
-                // rdata is continuously assigned or latched
-                rdata <= ram_dout; 
-            end else if (r_state == R_DATA) begin
-                 rdata <= ram_dout;
-            end
+            // rdata unconditionally follows ram_dout.
+            // ram_dout is valid one cycle after mem_addr is latched.
+            rdata <= ram_dout;
         end
     end
 
@@ -178,12 +175,25 @@ module axi4lite_slave (
             R_IDLE: begin
                 if (arvalid && !arready) begin
                     arready_next = 1'b1;
-                    r_next = R_DATA;
+                    r_next = R_ADDR;
                 end
             end
 
+            R_ADDR: begin
+                if (arvalid && arready) begin
+                    arready_next = 1'b0;
+                    r_next = R_FETCH;
+                end
+            end
+
+            R_FETCH: begin
+                // mem_addr was latched at the end of R_ADDR.
+                // In this state, RAM is fetching the data.
+                // On the next clock edge, ram_dout will be valid.
+                r_next = R_DATA;
+            end
+
             R_DATA: begin
-                arready_next = 1'b0;
                 if (!rvalid) begin
                     rvalid_next = 1'b1;
                     rresp_next  = valid_addr_read ? 2'b00 : 2'b10; // OKAY or SLVERR
